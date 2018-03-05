@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pd:ProcessDefinition xmlns:pd="http://xmlns.tibco.com/bw/process/2003" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <pd:name>GZIPCompress.process</pd:name>
+    <pd:startName>Start</pd:startName>
+    <pd:startType>
+        <xsd:element name="Input">
+            <xsd:complexType>
+                <xsd:sequence>
+                    <xsd:element name="Text" type="xsd:string"/>
+                </xsd:sequence>
+            </xsd:complexType>
+        </xsd:element>
+    </pd:startType>
+    <pd:startX>150</pd:startX>
+    <pd:startY>64</pd:startY>
+    <pd:returnBindings>
+        <Output>
+            <Body>
+                <xsl:value-of select="$Java-Code/javaCodeActivityOutput/output"/>
+            </Body>
+            <Content-Encoding>
+                <xsl:value-of select="'gzip'"/>
+            </Content-Encoding>
+            <Content-Transfer-Encoding>
+                <xsl:value-of select="'base64'"/>
+            </Content-Transfer-Encoding>
+        </Output>
+    </pd:returnBindings>
+    <pd:endName>End</pd:endName>
+    <pd:endType>
+        <xsd:element name="Output">
+            <xsd:complexType>
+                <xsd:sequence>
+                    <xsd:element name="Body" type="xsd:base64Binary"/>
+                    <xsd:element name="Content-Encoding" type="xsd:string"/>
+                    <xsd:element name="Content-Transfer-Encoding" type="xsd:string"/>
+                </xsd:sequence>
+            </xsd:complexType>
+        </xsd:element>
+    </pd:endType>
+    <pd:endX>450</pd:endX>
+    <pd:endY>64</pd:endY>
+    <pd:errorSchemas/>
+    <pd:processVariables/>
+    <pd:targetNamespace>http://xmlns.example.com/1519303292670</pd:targetNamespace>
+    <pd:activity name="Java Code">
+        <pd:type>com.tibco.plugin.java.JavaActivity</pd:type>
+        <pd:resourceType>ae.javapalette.javaActivity</pd:resourceType>
+        <pd:x>293</pd:x>
+        <pd:y>62</pd:y>
+        <config>
+            <fileName>GZIPCompressJavaCode</fileName>
+            <packageName>GZIPCompress</packageName>
+            <fullsource>package GZIPCompress;
+import java.util.*;
+import java.util.zip.*;
+import java.io.*;
+public class GZIPCompressJavaCode{
+/****** START SET/GET METHOD, DO NOT MODIFY *****/
+	protected String input = "";
+	protected byte[] output = null;
+	public String getinput() {
+		return input;
+	}
+	public void setinput(String val) {
+		input = val;
+	}
+	public byte[] getoutput() {
+		return output;
+	}
+	public void setoutput(byte[] val) {
+		output = val;
+	}
+/****** END SET/GET METHOD, DO NOT MODIFY *****/
+	public GZIPCompressJavaCode() {
+	}
+	public void invoke() throws Exception {
+/* Available Variables: DO NOT MODIFY
+	In  : String input
+	Out : byte[] output
+* Available Variables: DO NOT MODIFY *****/
+ByteArrayOutputStream baos = new ByteArrayOutputStream();
+GZIPOutputStream cout = new GZIPOutputStream(baos);
+cout.write(input.getBytes("UTF-8"));
+cout.flush();
+cout.close();
+output = baos.toByteArray();
+
+}
+}
+</fullsource>
+            <inputData>
+                <row>
+                    <fieldName>input</fieldName>
+                    <fieldType>string</fieldType>
+                    <fieldRequired>optional</fieldRequired>
+                </row>
+            </inputData>
+            <outputData>
+                <row>
+                    <fieldName>output</fieldName>
+                    <fieldType>binary</fieldType>
+                    <fieldRequired>optional</fieldRequired>
+                </row>
+            </outputData>
+            <byteCode>
+                <class>
+                    <name>GZIPCompressJavaCode</name>
+                    <byteCode>yv66vgAAADMAPwkADwAmCQAPACcKABAAKAgAKQcAKgoABQAoBwArCgAHACwIAC0KAC4ALwoABwAwCgAHADEKAAcAMgoABQAzBwA0BwA1AQAFaW5wdXQBABJMamF2YS9sYW5nL1N0cmluZzsBAAZvdXRwdXQBAAJbQgEACGdldGlucHV0AQAUKClMamF2YS9sYW5nL1N0cmluZzsBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAIc2V0aW5wdXQBABUoTGphdmEvbGFuZy9TdHJpbmc7KVYBAAlnZXRvdXRwdXQBAAQoKVtCAQAJc2V0b3V0cHV0AQAFKFtCKVYBAAY8aW5pdD4BAAMoKVYBAAZpbnZva2UBAApFeGNlcHRpb25zBwA2AQAKU291cmNlRmlsZQEAGUdaSVBDb21wcmVzc0phdmFDb2RlLmphdmEMABEAEgwAEwAUDAAfACABAAABAB1qYXZhL2lvL0J5dGVBcnJheU91dHB1dFN0cmVhbQEAHmphdmEvdXRpbC96aXAvR1pJUE91dHB1dFN0cmVhbQwAHwA3AQAFVVRGLTgHADgMADkAOgwAOwAeDAA8ACAMAD0AIAwAPgAcAQAhR1pJUENvbXByZXNzL0daSVBDb21wcmVzc0phdmFDb2RlAQAQamF2YS9sYW5nL09iamVjdAEAE2phdmEvbGFuZy9FeGNlcHRpb24BABkoTGphdmEvaW8vT3V0cHV0U3RyZWFtOylWAQAQamF2YS9sYW5nL1N0cmluZwEACGdldEJ5dGVzAQAWKExqYXZhL2xhbmcvU3RyaW5nOylbQgEABXdyaXRlAQAFZmx1c2gBAAVjbG9zZQEAC3RvQnl0ZUFycmF5ACEADwAQAAAAAgAEABEAEgAAAAQAEwAUAAAABgABABUAFgABABcAAAAdAAEAAQAAAAUqtAABsAAAAAEAGAAAAAYAAQAAAAoAAQAZABoAAQAXAAAAIgACAAIAAAAGKiu1AAGxAAAAAQAYAAAACgACAAAADQAFAA4AAQAbABwAAQAXAAAAHQABAAEAAAAFKrQAArAAAAABABgAAAAGAAEAAAAQAAEAHQAeAAEAFwAAACIAAgACAAAABiortQACsQAAAAEAGAAAAAoAAgAAABMABQAUAAEAHwAgAAEAFwAAADQAAgABAAAAECq3AAMqEgS1AAEqAbUAArEAAAABABgAAAASAAQAAAAWAAQABwAKAAgADwAXAAEAIQAgAAIAFwAAAF8AAwADAAAAL7sABVm3AAZMuwAHWSu3AAhNLCq0AAESCbYACrYACyy2AAwstgANKiu2AA61AAKxAAAAAQAYAAAAHgAHAAAAHQAIAB4AEQAfAB4AIAAiACEAJgAiAC4AJAAiAAAABAABACMAAQAkAAAAAgAl</byteCode>
+                </class>
+            </byteCode>
+        </config>
+        <pd:inputBindings>
+            <javaCodeActivityInput>
+                <input>
+                    <xsl:value-of select="$Start/Input/Text"/>
+                </input>
+            </javaCodeActivityInput>
+        </pd:inputBindings>
+    </pd:activity>
+    <pd:transition>
+        <pd:from>Start</pd:from>
+        <pd:to>Java Code</pd:to>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>always</pd:conditionType>
+    </pd:transition>
+    <pd:transition>
+        <pd:from>Java Code</pd:from>
+        <pd:to>End</pd:to>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>always</pd:conditionType>
+    </pd:transition>
+</pd:ProcessDefinition>

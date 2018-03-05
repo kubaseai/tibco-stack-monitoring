@@ -1,0 +1,729 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pd:ProcessDefinition xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:pd="http://xmlns.tibco.com/bw/process/2003" xmlns:ns="http://www.tibco.com/pe/WriteToLogActivitySchema" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <pd:name>EMSJava.process</pd:name>
+    <pd:startName>HTTP Receiver</pd:startName>
+    <pd:startX>0</pd:startX>
+    <pd:startY>0</pd:startY>
+    <pd:returnBindings/>
+    <pd:starter name="HTTP Receiver">
+        <pd:type>com.tibco.plugin.http.HTTPEventSource</pd:type>
+        <pd:resourceType>httppalette.httpEventSource</pd:resourceType>
+        <pd:x>115</pd:x>
+        <pd:y>88</pd:y>
+        <config>
+            <outputMode>String</outputMode>
+            <defaultEncoding>UTF8</defaultEncoding>
+            <inputOutputVersion>5.3.0</inputOutputVersion>
+            <newMimeSupport>true</newMimeSupport>
+            <sharedChannel>/EMS HTTP.sharedhttp</sharedChannel>
+            <customField>
+                <row>
+                    <attribute>last</attribute>
+                    <attributeType>string</attributeType>
+                    <attributeCard>optional</attributeCard>
+                </row>
+            </customField>
+            <Headers>
+                <xsd:element name="root">
+                    <xsd:complexType>
+                        <xsd:sequence>
+                            <xsd:element name="Accept" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Accept-Charset" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Accept-Encoding" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Content-Type" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Content-Length" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Connection" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Cookie" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Pragma" type="xsd:string" minOccurs="0"/>
+                        </xsd:sequence>
+                    </xsd:complexType>
+                </xsd:element>
+            </Headers>
+        </config>
+        <pd:inputBindings/>
+    </pd:starter>
+    <pd:endName>End</pd:endName>
+    <pd:endX>753</pd:endX>
+    <pd:endY>96</pd:endY>
+    <pd:errorSchemas/>
+    <pd:processVariables/>
+    <pd:targetNamespace>http://xmlns.example.com/1514400948639</pd:targetNamespace>
+    <pd:activity name="invoke">
+        <pd:type>com.tibco.plugin.java.JavaActivity</pd:type>
+        <pd:resourceType>ae.javapalette.javaActivity</pd:resourceType>
+        <pd:x>266</pd:x>
+        <pd:y>90</pd:y>
+        <config>
+            <fileName>EMSJavainvoke</fileName>
+            <packageName>EMSJava</packageName>
+            <fullsource>package EMSJava;
+
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.net.InetAddress;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import javax.servlet.Servlet;
+import javax.servlet.ServletConfig;
+import javax.servlet.ServletException;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
+import javax.servlet.http.HttpServletResponse;
+
+import com.tibco.tibjms.admin.ConnectionInfo;
+import com.tibco.tibjms.admin.ConsumerInfo;
+import com.tibco.tibjms.admin.ProducerInfo;
+import com.tibco.tibjms.admin.QueueInfo;
+import com.tibco.tibjms.admin.ServerInfo;
+import com.tibco.tibjms.admin.TibjmsAdmin;
+import com.tibco.tibjms.admin.TopicInfo;
+
+@SuppressWarnings("deprecation")
+public class EMSJavainvoke{
+
+	protected static volatile long now = System.currentTimeMillis();
+	private static ExecutorService es = null;
+	private final static ConcurrentLinkedQueue&lt;String&gt; result = new ConcurrentLinkedQueue&lt;&gt;();
+	private final static ConcurrentLinkedQueue&lt;String&gt; errors = new ConcurrentLinkedQueue&lt;&gt;();	
+	private static EMSJavainvoke INSTANCE = null;
+
+	protected int threadPoolCount = 24;
+	protected String connectionStrings = "admin=@localhost:7222";
+	
+	private static synchronized ExecutorService getExecutorService(int threadCount) {
+		if (es==null)
+			es = Executors.newFixedThreadPool(threadCount);
+		return es;
+	}
+	
+	private final static class ConnectionParamsHolder {
+		public String url;
+		public String user;
+		public String pass;
+		
+		public static List&lt;ConnectionParamsHolder&gt; fromString(String connString) throws Exception {
+			String header = "["+ConnectionParamsHolder.class.getName()+"] ";
+			LinkedList&lt;ConnectionParamsHolder&gt; list = new LinkedList&lt;&gt;();
+			for (String s : connString.split("\\;")) {
+				String[] upHost = s.split("\\@");
+				ConnectionParamsHolder ci = new ConnectionParamsHolder();
+				ci.url = upHost[1];
+				String[] up = upHost[0].split(upHost[0].contains("=") ? "\\=" : "\\:");
+				ci.user = up[0];
+				ci.pass = up.length &gt; 1 ? up[1] : null;	
+				if (ci.pass!=null &amp;&amp; ci.pass.startsWith("$")) {
+					ci.pass = com.tibco.pe.plugin.PluginProperties.getProperty("tibco.clientVar."+ci.pass.substring(1));
+				}			
+				list.add(ci);
+				System.out.println(header + " connection "+ci);
+			}
+			return list;
+		}
+		
+		public String toString() {
+			return user+"@"+url;
+		}
+	}
+	
+	private final static String exceptionToString(Throwable exc) {
+		StringWriter sw = new StringWriter();
+    		PrintWriter pw = new PrintWriter(sw);
+    		pw.append(exc.getMessage()).append(" -&gt; ");
+    		exc.printStackTrace(pw);
+    		pw.flush();
+    		sw.flush();
+    		return sw.toString();
+	}	
+	
+	public final static double roundDouble(double d, int places) {
+		BigDecimal bd = new BigDecimal(d);
+	    	bd = bd.setScale(places, RoundingMode.HALF_UP);
+	    	return bd.doubleValue();
+	}
+	
+	public static class EmsStatsExtractor implements Runnable {
+		
+		private Method m = null;
+		private CountDownLatch sync = null;
+		private TibjmsAdmin admin = null;
+		private String node = null;
+		
+		public EmsStatsExtractor(Method m, TibjmsAdmin admin, CountDownLatch sync, String node) {
+			this.m = m;
+			this.sync = sync;
+			this.admin = admin;
+			this.node = node;
+		}
+		public String getName() {
+			return m.getName();
+		}
+		
+		private boolean isInfoUseful(Object data) {
+			String clazz = data.getClass().getName();
+			if (clazz.contains("ConnectionFactoryInfo") || clazz.contains(".GroupInfo") || clazz.contains(".UserInfo") || clazz.contains("VersionInfo"))
+				return false;
+			if (clazz.endsWith("Info"))
+				return true;
+			String info = data.toString();
+			if (info.length()==0 || Character.isDigit(info.charAt(0)) || info.startsWith("$"))
+				return false;						
+			return false;
+		}
+		
+		public void run() {
+			try {
+				Object res = m.invoke(admin, new Object[] {});
+				LinkedList&lt;Object&gt; toProcess = new LinkedList&lt;&gt;();
+				toProcess.add(res);
+				while (!toProcess.isEmpty()) {
+					Object head = toProcess.remove();
+					try {
+						Object[] tab = (Object[])head;
+						for (Object obj : tab) {
+							toProcess.add(obj);
+						}						
+					}
+					catch (Exception notTable) {
+						if (isInfoUseful(head)) {
+							String data = prepareData(head, node);
+							if (data!=null) {
+								System.out.println(data);
+								result.add(data);
+							}
+						}
+					}
+				}
+			}
+			catch (Throwable e) {
+				if (e.getCause()!=null)
+					e = e.getCause();
+				errors.add(exceptionToString(e));
+			}
+			finally {
+				sync.countDown();
+			}
+		}	
+	}
+
+	public static class EmsStats {
+		String nameOrDesc = "";
+		int opTime = 0;
+		static String host = null;
+		
+		static {
+			try {
+				host = InetAddress.getLocalHost().getCanonicalHostName();
+			}
+			catch (Exception e) {};
+		}
+	
+		private TreeMap&lt;String, Object&gt; getDataInMap() {
+			TreeMap&lt;String,Object&gt; data = new TreeMap&lt;String,Object&gt;();
+			data.put("opTime", opTime);
+			return data;
+		}
+		
+		public String toPrometheusString() {
+			StringBuilder sb = new StringBuilder();
+			for (Map.Entry&lt;String,Object&gt; entry : getDataInMap().entrySet()) {
+				sb.append("Tibco_"+entry.getKey()).append(" { component=\"").append(nameOrDesc).append("\", host=\"").append(host)
+				.append("\" } ").append(entry.getValue()).append(" ").append(now).append("\n");
+			}			
+			return sb.toString();	
+		}
+	}		
+	
+	public void invokeService() {	
+		now = System.currentTimeMillis();
+		List&lt;Method&gt; list = new LinkedList&lt;&gt;();
+		List&lt;TibjmsAdmin&gt; adminList = new LinkedList&lt;&gt;();
+		List&lt;ConnectionParamsHolder&gt; cphList = new LinkedList&lt;&gt;();
+		
+		try {
+			cphList.addAll(ConnectionParamsHolder.fromString(connectionStrings));
+			for (ConnectionParamsHolder cph : cphList) {
+				adminList.add(new TibjmsAdmin(cph.url, cph.user, cph.pass));
+			}
+			for (Method m : adminList.get(0).getClass().getDeclaredMethods()) {
+				if (m./*getParameterCount()*/getParameterTypes().length==0 &amp;&amp; m.getName().startsWith("get")) {
+					if (!m.getName().endsWith("getJACIInfo") &amp;&amp; !m.getName().endsWith("getConfiguration"))
+						list.add(m);
+				}
+			}
+			CountDownLatch sync = new CountDownLatch(list.size() * adminList.size());
+			es = getExecutorService(threadPoolCount);
+			for (final Method m : list) {
+				for (int i=0; i &lt; adminList.size(); i++)
+					es.execute(new EmsStatsExtractor(m, adminList.get(i), sync, cphList.get(i).url));		
+			}
+			try {
+				int timeout = Integer.parseInt(com.tibco.pe.plugin.PluginProperties.getProperty("tibco.clientVar.queryTimeoutSeconds"));
+				sync.await(timeout, TimeUnit.SECONDS);
+			}
+			catch (Throwable e) {
+				errors.add("Timeout missed while waiting for all results: "+e);
+			}
+			
+			StringBuilder sb = new StringBuilder();		
+			while (result.size() &gt; 0) {
+				String emsStat = result.remove();
+				sb.append(emsStat);
+			}
+			content = sb.toString();
+			errorMessages = errors.toString();
+			errors.clear();
+		}
+		catch (Throwable e) {
+			e.printStackTrace();
+			errors.add(exceptionToString(e));
+			errorMessages = errors.toString();
+		}
+		finally {
+			for (TibjmsAdmin admin : adminList) {
+				if (admin!=null) {
+					try {
+						admin.close();
+					}
+					catch (Exception ex) {}
+				}
+			}
+		}
+	}
+	
+	private final static String getFieldByMethod(String field, Object object) {
+		for (String mthName : new String[] { "get"+field, "is"+field } ) {
+			try {
+				Method m = object.getClass().getDeclaredMethod(mthName, new Class[] {});
+				m.setAccessible(true);
+				return m.invoke(object, new Object[] {}) + "";
+			}
+			catch (Exception exc) {}
+			try {
+				Method m = object.getClass().getMethod(mthName, new Class[] {});
+				m.setAccessible(true);
+				return m.invoke(object, new Object[] {}) + "";				
+			}
+			catch (Exception exc) {}
+		}
+		return null;
+	}
+	
+	private final static String getField(String field, Object object) {
+		String fieldName = field.split("\\.")[0];
+		Object ret = null;
+		Class&lt;?&gt; clazz = object.getClass();
+		boolean found = false;
+		while (!Object.class.equals(clazz)) {
+			try {
+				Field f = clazz.getField(fieldName);
+				f.setAccessible(true);
+				ret = f.get(object);	
+				found = true;
+			}
+			catch (Exception e) {}
+			if (ret==null) {
+				try {
+					Field f = clazz.getDeclaredField(fieldName);
+					f.setAccessible(true);
+					ret = f.get(object);
+					found = true;
+				}
+				catch (Exception e) {}
+			}
+			if (ret!=null)
+				break;
+			clazz = clazz.getSuperclass();
+		}
+		if (field.indexOf('.')!=-1 &amp;&amp; ret!=null) {
+			String nextField = field.substring(field.indexOf('.')+1);
+			// field.subfield or field.getSubfield &lt;=&gt; field.Subfield
+			return Character.isLowerCase(nextField.charAt(0)) ? getField(nextField, ret) : getFieldByMethod(nextField, ret);
+		}
+		return ret==null ? (found ? "" : null) : ret+"";
+	}
+	
+	public final static String getMetrics(Object data, String node, String[] labels, String... metrics) {
+		String[] classTokens = data.getClass().getName().split("\\.");
+		String name = classTokens[classTokens.length-1];
+		HashMap&lt;String,String&gt; retrievedLabels = new HashMap&lt;&gt;();
+		HashMap&lt;String,String&gt; retrievedMetrics = new HashMap&lt;&gt;();
+		
+		for (String label : labels) {
+			String lbl = getFieldByMethod(label, data);
+			if (lbl!=null) {
+				if (label.contains("Name") &amp;&amp; lbl.startsWith("$TMP"))
+					return null;
+				retrievedLabels.put(label, lbl);
+			}
+		}
+		retrievedLabels.put("node", node);
+		for (String metric : metrics) {
+			String value = Character.isLowerCase(metric.charAt(0)) ? getField(metric, data) : getFieldByMethod(metric, data);
+			if (value!=null) {
+				if (value.length()&gt;0)
+					retrievedMetrics.put(metric, "true".equals(value) ? "1" : ("false".equals(value) ? "0" : value));
+			}
+			else
+				System.err.println("Ooops, field not found: "+metric+", class: "+data.getClass().getName()+" =&gt; "+data);			
+		}
+		StringBuilder sb = new StringBuilder();
+		for (Map.Entry&lt;String, String&gt; en : retrievedMetrics.entrySet()) {
+			String[] tokens = en.getKey().replace("instat.", "in.").replace("outstat.", "out.").replace("details.", "").split("\\.");
+			sb.append("Ems").append(name.replace("Info", ""));
+			for (String token : tokens) {
+				token = token.replace("sent", "Sent").replace("size", "Size").replace("acked", "Acked").replace("num", "Num");
+				if (token.length() &gt; 0)
+					sb.append(token.substring(0, 1).toUpperCase()).append(token.substring(1));
+				else {
+					System.out.println("Invalid token: "+en.getKey()+" -&gt; "+token);
+				}
+			}
+			sb.append(" { ");
+			for (Map.Entry&lt;String, String&gt; ent : retrievedLabels.entrySet()) {
+				sb.append(ent.getKey()).append("=\"").append(ent.getValue()).append("\", ");
+			}
+			if (labels.length &gt; 0)
+				sb.setLength(sb.length()-2);
+			sb.append(" } ").append(en.getValue()).append(" ").append(System.currentTimeMillis()).append("\n");
+		}
+		return sb.toString();
+	}
+	
+	public static String prepareData(Object head, String node) {		
+		if (head instanceof ServerInfo) {
+			return getMetrics(head, node, new String[] { "URL" }, "DurableCount", "PendingMessageCount", "PendingMessageSize", "ConsumerCount", "State", "OverallSyncProgress", "UpTime", "QueueCount", "TopicCount", "ConnectionCount", "SessionCount", "ProducerCount", "InboundMessageCount", "OutboundMessageCount", "InboundMessageRate", "OutboundMessageRate", "InboundBytesRate", "OutboundBytesRate", "LogFileSize", "SyncDBSize", "AsyncDBSize", "MsgMem", "MsgMemPooled", "DiskReadRate", "DiskWriteRate", "DiskReadOperationsRate", "DiskWriteOperationsRate", "DurableCount", "PendingMessageCount", "PendingMessageSize", "ConsumerCount");
+		}
+		else if (head instanceof QueueInfo) {
+			return getMetrics(head, node, new String[] { "Name" }, "ReceiverCount", "DeliveredMessageCount", "InTransitMessageCount", "PendingMessageCount", "PendingMessageSize", "PendingPersistentMessageCount", "PendingPersistentMessageSize", "ConsumerCount", "instat.ByteRate", "instat.MessageRate", "instat.TotalBytes", "instat.TotalMessages", "outstat.ByteRate", "outstat.MessageRate", "outstat.TotalBytes", "outstat.TotalMessages");
+		}
+		else if (head instanceof TopicInfo) {
+			return getMetrics(head, node, new String[] { "Name" }, "SubscriptionCount", "DurableSubscriptionCount", "SubscriberCount", "DurableCount", "ActiveDurableCount", "PendingMessageCount", "PendingMessageSize", "PendingPersistentMessageCount", "PendingPersistentMessageSize", "ConsumerCount", "instat.ByteRate", "instat.MessageRate", "instat.TotalBytes", "instat.TotalMessages", "outstat.ByteRate", "outstat.MessageRate", "outstat.TotalBytes", "outstat.TotalMessages");
+		}
+		else if (head instanceof ConnectionInfo) {
+			return getMetrics(head, node, new String[] { "ID", "URL", "Address" }, "ConsumerCount", "UncommittedCount", "UncommittedSize", "UpTime", "SessionCount", "ProducerCount", "StartTime", "Started" );
+		}
+		else if (head instanceof ProducerInfo) {
+			return getMetrics(head, node, new String[] { "ID", "Username", "DestinationName" }, "stat.ByteRate", "stat.MessageRate", "stat.TotalBytes", "stat.TotalMessages", "CreateTime" );
+		}
+		else if (head instanceof ConsumerInfo) {		 
+			return getMetrics(head, node, new String[] { "ID", "Username", "DestinationName" }, "PendingMessageCount", "PendingMessageSize", "CreateTime", "details.predlv", "details.sentnum", "details.sentsize", "details.lastsent", "details.lastacked", "details.totalsent", "details.totalacked", "stat.ByteRate", "stat.MessageRate", "stat.TotalBytes", "stat.TotalMessages", "Connected" );
+		}
+		return null;
+	}
+	
+	private void configureParameter(String name) {
+		String header = "["+this.getClass().getName()+"] ";
+		String valueStr = com.tibco.pe.plugin.PluginProperties.getProperty("tibco.clientVar."+name);
+
+		if (name.contains("String")) {
+			try {
+				Field f = this.getClass().getDeclaredField(name);
+				if (valueStr.length() &gt; 0)
+					f.set(this, valueStr);
+				System.out.println(header+"Using "+name+": "+f.get(this));
+				return;
+			}
+			catch (Exception e) {
+				System.out.println(header+"Invalid parameter value for "+name+"; exception="+e.getMessage());
+			}
+		}
+		
+		try {
+			Integer value = Integer.valueOf(com.tibco.pe.plugin.PluginProperties.getProperty("tibco.clientVar."+name));
+			Field f = this.getClass().getDeclaredField(name);
+			if (value!=-1)
+				f.set(this, value);
+			System.out.println(header+"Using "+name+": "+f.get(this));
+		}
+		catch (Exception e) {
+			System.out.println(header+"Invalid parameter value for "+name+": "+valueStr+"; exception="+e.getMessage());
+		}
+	}
+
+
+	private EMSJavainvoke configure() {
+		String options = "connectionStrings threadPoolCount";
+		for (String s : options.split("\\ "))
+			configureParameter(s);
+		return this;
+	}
+	
+	private static synchronized EMSJavainvoke getInstance() {
+		if (INSTANCE!=null)
+			return INSTANCE;
+		return (INSTANCE = new EMSJavainvoke().configure());		
+	}
+	
+/****** START SET/GET METHOD, DO NOT MODIFY *****/
+	protected String last = "";
+	protected String path = "";
+	protected String content = "";
+	protected String contentType = "";
+	protected String errorMessages = "";
+	public String getlast() {
+		return last;
+	}
+	public void setlast(String val) {
+		last = val;
+	}
+	public String getpath() {
+		return path;
+	}
+	public void setpath(String val) {
+		path = val;
+	}
+	public String getcontent() {
+		return content;
+	}
+	public void setcontent(String val) {
+		content = val;
+	}
+	public String getcontentType() {
+		return contentType;
+	}
+	public void setcontentType(String val) {
+		contentType = val;
+	}
+	public String geterrorMessages() {
+		return errorMessages;
+	}
+	public void seterrorMessages(String val) {
+		errorMessages = val;
+	}
+/****** END SET/GET METHOD, DO NOT MODIFY *****/
+	public EMSJavainvoke() {
+	}
+	public void invoke() throws Exception {
+/* Available Variables: DO NOT MODIFY
+	In  : String last
+	In  : String path
+	Out : String content
+	Out : String contentType
+	Out : String errorMessages
+* Available Variables: DO NOT MODIFY *****/
+
+if (path==null || path.trim().length()==0 || path.equals("/") || path.equals("/favicon.ico")) {
+	contentType = "text/html; charset=UTF-8";
+	content = "&lt;html&gt;&lt;body&gt;&lt;h3&gt;This is TibcoEMSExporter exposing &lt;a href='/metrics?last=true'&gt;metrics&lt;/a&gt;&lt;/h3&gt;&lt;/body&gt;";
+	return;
+}
+
+contentType = "text/plain; version=0.0.4";
+if ("1".equals(last) || "true".equalsIgnoreCase(last) || "yes".equalsIgnoreCase(last))
+		;
+else
+	getInstance().invokeService();
+content = getInstance().content;
+errorMessages = getInstance().errorMessages;
+}
+}
+</fullsource>
+            <inputData>
+                <row>
+                    <fieldName>last</fieldName>
+                    <fieldType>string</fieldType>
+                    <fieldRequired>optional</fieldRequired>
+                </row>
+                <row>
+                    <fieldName>path</fieldName>
+                    <fieldType>string</fieldType>
+                    <fieldRequired>optional</fieldRequired>
+                </row>
+            </inputData>
+            <outputData>
+                <row>
+                    <fieldName>content</fieldName>
+                    <fieldType>string</fieldType>
+                    <fieldRequired>optional</fieldRequired>
+                </row>
+                <row>
+                    <fieldName>contentType</fieldName>
+                    <fieldType>string</fieldType>
+                    <fieldRequired>optional</fieldRequired>
+                </row>
+                <row>
+                    <fieldName>errorMessages</fieldName>
+                    <fieldType>string</fieldType>
+                    <fieldRequired>optional</fieldRequired>
+                </row>
+            </outputData>
+            <byteCode>
+                <class>
+                    <name>EMSJavainvoke$ConnectionParamsHolder</name>
+                    <byteCode>yv66vgAAADMAfgoAIgA9BwA+CgACAD0IAD8KAAIAQAcAQgoAQwBECABFCgACAEYHAEcKAAoAPQgASAoASQBKCABLCgAGAD0JAAYATAgATQoASQBOCABPCABQCQAGAFEJAAYAUggAUwoASQBUCABVCgBJAFYKAFcAWAoACgBZCQBaAFsIAFwKAAIAXQoAXgBfCABgBwBhAQADdXJsAQASTGphdmEvbGFuZy9TdHJpbmc7AQAEdXNlcgEABHBhc3MBAAY8aW5pdD4BAAMoKVYBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAKZnJvbVN0cmluZwEAJChMamF2YS9sYW5nL1N0cmluZzspTGphdmEvdXRpbC9MaXN0OwEADVN0YWNrTWFwVGFibGUHAGIHAEcHAGMHAGMHAEIBAApFeGNlcHRpb25zBwBkAQAJU2lnbmF0dXJlAQAWQ29ubmVjdGlvblBhcmFtc0hvbGRlcgEADElubmVyQ2xhc3NlcwEAVChMamF2YS9sYW5nL1N0cmluZzspTGphdmEvdXRpbC9MaXN0PExFTVNKYXZhL0VNU0phdmFpbnZva2UkQ29ubmVjdGlvblBhcmFtc0hvbGRlcjs+OwEACHRvU3RyaW5nAQAUKClMamF2YS9sYW5nL1N0cmluZzsBAApTb3VyY2VGaWxlAQASRU1TSmF2YWludm9rZS5qYXZhDAAnACgBABdqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcgEAAVsMAGUAZgcAZwEALEVNU0phdmEvRU1TSmF2YWludm9rZSRDb25uZWN0aW9uUGFyYW1zSG9sZGVyBwBoDABpADoBAAJdIAwAOQA6AQAUamF2YS91dGlsL0xpbmtlZExpc3QBAAJcOwcAYgwAagBrAQACXEAMACMAJAEAAT0MAGwAbQEAAlw9AQACXDoMACUAJAwAJgAkAQABJAwAbgBvAQAQdGliY28uY2xpZW50VmFyLgwAcABxBwByDABzAHQMAHUAdgcAdwwAeAB5AQAMIGNvbm5lY3Rpb24gDABlAHoHAHsMAHwAfQEAAUABABBqYXZhL2xhbmcvT2JqZWN0AQAQamF2YS9sYW5nL1N0cmluZwEAE1tMamF2YS9sYW5nL1N0cmluZzsBABNqYXZhL2xhbmcvRXhjZXB0aW9uAQAGYXBwZW5kAQAtKExqYXZhL2xhbmcvU3RyaW5nOylMamF2YS9sYW5nL1N0cmluZ0J1aWxkZXI7AQAVRU1TSmF2YS9FTVNKYXZhaW52b2tlAQAPamF2YS9sYW5nL0NsYXNzAQAHZ2V0TmFtZQEABXNwbGl0AQAnKExqYXZhL2xhbmcvU3RyaW5nOylbTGphdmEvbGFuZy9TdHJpbmc7AQAIY29udGFpbnMBABsoTGphdmEvbGFuZy9DaGFyU2VxdWVuY2U7KVoBAApzdGFydHNXaXRoAQAVKExqYXZhL2xhbmcvU3RyaW5nOylaAQAJc3Vic3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAkY29tL3RpYmNvL3BlL3BsdWdpbi9QbHVnaW5Qcm9wZXJ0aWVzAQALZ2V0UHJvcGVydHkBACYoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nOwEAA2FkZAEAFShMamF2YS9sYW5nL09iamVjdDspWgEAEGphdmEvbGFuZy9TeXN0ZW0BAANvdXQBABVMamF2YS9pby9QcmludFN0cmVhbTsBAC0oTGphdmEvbGFuZy9PYmplY3Q7KUxqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcjsBABNqYXZhL2lvL1ByaW50U3RyZWFtAQAHcHJpbnRsbgEAFShMamF2YS9sYW5nL1N0cmluZzspVgAwAAYAIgAAAAMAAQAjACQAAAABACUAJAAAAAEAJgAkAAAAAwACACcAKAABACkAAAAdAAEAAQAAAAUqtwABsQAAAAEAKgAAAAYAAQAAADsACQArACwAAwApAAACCAAEAAoAAAD6uwACWbcAAxIEtgAFEwAGtgAHtgAFEgi2AAW2AAlMuwAKWbcAC00qEgy2AA1OLb42BAM2BRUFFQSiAMAtFQUyOgYZBhIOtgANOge7AAZZtwAPOggZCBkHBDK1ABAZBwMyGQcDMhIRtgASmQAIEhOnAAUSFLYADToJGQgZCQMytQAVGQgZCb4EpAAKGQkEMqcABAG1ABYZCLQAFsYAMxkItAAWEhe2ABiZACYZCLsAAlm3AAMSGbYABRkItAAWBLYAGrYABbYACbgAG7UAFiwZCLYAHFeyAB27AAJZtwADK7YABRIetgAFGQi2AB+2AAm2ACCEBQGn/z8ssAAAAAIAKgAAAD4ADwAAAEEAHgBCACYAQwBBAEQASgBFAFMARgBcAEcAeABIAIEASQCVAEoAqgBLAM0ATQDUAE4A8gBDAPgAUAAtAAAAuAAH/wA0AAYHAC4HAC4HAC8HADABAQAA/wA8AAkHAC4HAC4HAC8HADABAQcALgcAMQcAMgABBwAu/wABAAkHAC4HAC4HAC8HADABAQcALgcAMQcAMgACBwAuBwAu/wAdAAoHAC4HAC4HAC8HADABAQcALgcAMQcAMgcAMQABBwAy/wAAAAoHAC4HAC4HAC8HADABAQcALgcAMQcAMgcAMQACBwAyBwAuOv8AKgADBwAuBwAuBwAvAAAAMwAAAAQAAQA0ADUAAAACADgAAQA5ADoAAQApAAAANgACAAEAAAAeuwACWbcAAyq0ABW2AAUSIbYABSq0ABC2AAW2AAmwAAAAAQAqAAAABgABAAAAVAACADsAAAACADwANwAAAAoAAQAGAEEANgAa</byteCode>
+                </class>
+                <class>
+                    <name>EMSJavainvoke$EmsStats</name>
+                    <byteCode>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</byteCode>
+                </class>
+                <class>
+                    <name>EMSJavainvoke$EmsStatsExtractor</name>
+                    <byteCode>yv66vgAAADMApgoAFgBHCQAqAEgJACoASQkAKgBKCQAqAEsKAEwATQoAFgBOCgBPAE0IAFAKAFEAUggAUwgAVAgAVQgAVgoAUQBXCgAWAFgKAFEAWQoAUQBaCgBbAFwIAF0KAFEAXgcAXwoATABgBwBhCgAYAEcKABgAYgoAGABjCgAYAGQHAGUHAGYKACoAZwoAaABpCQBqAGsKAGwAbQoAaABuCgBvAGIKAHAAcQcAcgoAJgBzCgBoAHQKAGgAdQcAdgcAeQEAAW0BABpMamF2YS9sYW5nL3JlZmxlY3QvTWV0aG9kOwEABHN5bmMBACVMamF2YS91dGlsL2NvbmN1cnJlbnQvQ291bnREb3duTGF0Y2g7AQAFYWRtaW4BACRMY29tL3RpYmNvL3RpYmptcy9hZG1pbi9UaWJqbXNBZG1pbjsBAARub2RlAQASTGphdmEvbGFuZy9TdHJpbmc7AQAGPGluaXQ+AQB4KExqYXZhL2xhbmcvcmVmbGVjdC9NZXRob2Q7TGNvbS90aWJjby90aWJqbXMvYWRtaW4vVGliam1zQWRtaW47TGphdmEvdXRpbC9jb25jdXJyZW50L0NvdW50RG93bkxhdGNoO0xqYXZhL2xhbmcvU3RyaW5nOylWAQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEAB2dldE5hbWUBABQoKUxqYXZhL2xhbmcvU3RyaW5nOwEADGlzSW5mb1VzZWZ1bAEAFShMamF2YS9sYW5nL09iamVjdDspWgEADVN0YWNrTWFwVGFibGUHAHoBAANydW4BAAMoKVYHAF8HAGEHAHYHAGYHAHIBAApTb3VyY2VGaWxlAQASRU1TSmF2YWludm9rZS5qYXZhDAA0AD8MACwALQwALgAvDAAwADEMADIAMwcAewwAOAA5DAB8AH0HAH4BABVDb25uZWN0aW9uRmFjdG9yeUluZm8HAHoMAH8AgAEACi5Hcm91cEluZm8BAAkuVXNlckluZm8BAAtWZXJzaW9uSW5mbwEABEluZm8MAIEAggwAgwA5DACEAIUMAIYAhwcAiAwAiQCKAQABJAwAiwCCAQAQamF2YS9sYW5nL09iamVjdAwAjACNAQAUamF2YS91dGlsL0xpbmtlZExpc3QMAI4AOwwAjwCQDACRAJIBABNbTGphdmEvbGFuZy9PYmplY3Q7AQATamF2YS9sYW5nL0V4Y2VwdGlvbgwAOgA7BwCTDACUAJUHAJYMAJcAmAcAmQwAmgCbDACcAJ0HAJ4HAJ8MAKAAPwEAE2phdmEvbGFuZy9UaHJvd2FibGUMAKEAogwAowCdDACkAKUBACdFTVNKYXZhL0VNU0phdmFpbnZva2UkRW1zU3RhdHNFeHRyYWN0b3IBABFFbXNTdGF0c0V4dHJhY3RvcgEADElubmVyQ2xhc3NlcwEAEmphdmEvbGFuZy9SdW5uYWJsZQEAEGphdmEvbGFuZy9TdHJpbmcBABhqYXZhL2xhbmcvcmVmbGVjdC9NZXRob2QBAAhnZXRDbGFzcwEAEygpTGphdmEvbGFuZy9DbGFzczsBAA9qYXZhL2xhbmcvQ2xhc3MBAAhjb250YWlucwEAGyhMamF2YS9sYW5nL0NoYXJTZXF1ZW5jZTspWgEACGVuZHNXaXRoAQAVKExqYXZhL2xhbmcvU3RyaW5nOylaAQAIdG9TdHJpbmcBAAZsZW5ndGgBAAMoKUkBAAZjaGFyQXQBAAQoSSlDAQATamF2YS9sYW5nL0NoYXJhY3RlcgEAB2lzRGlnaXQBAAQoQylaAQAKc3RhcnRzV2l0aAEABmludm9rZQEAOShMamF2YS9sYW5nL09iamVjdDtbTGphdmEvbGFuZy9PYmplY3Q7KUxqYXZhL2xhbmcvT2JqZWN0OwEAA2FkZAEAB2lzRW1wdHkBAAMoKVoBAAZyZW1vdmUBABQoKUxqYXZhL2xhbmcvT2JqZWN0OwEAFUVNU0phdmEvRU1TSmF2YWludm9rZQEAC3ByZXBhcmVEYXRhAQA4KExqYXZhL2xhbmcvT2JqZWN0O0xqYXZhL2xhbmcvU3RyaW5nOylMamF2YS9sYW5nL1N0cmluZzsBABBqYXZhL2xhbmcvU3lzdGVtAQADb3V0AQAVTGphdmEvaW8vUHJpbnRTdHJlYW07AQATamF2YS9pby9QcmludFN0cmVhbQEAB3ByaW50bG4BABUoTGphdmEvbGFuZy9TdHJpbmc7KVYBAAphY2Nlc3MkMDAwAQAuKClMamF2YS91dGlsL2NvbmN1cnJlbnQvQ29uY3VycmVudExpbmtlZFF1ZXVlOwEAKmphdmEvdXRpbC9jb25jdXJyZW50L0NvbmN1cnJlbnRMaW5rZWRRdWV1ZQEAI2phdmEvdXRpbC9jb25jdXJyZW50L0NvdW50RG93bkxhdGNoAQAJY291bnREb3duAQAIZ2V0Q2F1c2UBABcoKUxqYXZhL2xhbmcvVGhyb3dhYmxlOwEACmFjY2VzcyQyMDABAAphY2Nlc3MkMTAwAQApKExqYXZhL2xhbmcvVGhyb3dhYmxlOylMamF2YS9sYW5nL1N0cmluZzsAIQAqABYAAQArAAQAAgAsAC0AAAACAC4ALwAAAAIAMAAxAAAAAgAyADMAAAAEAAEANAA1AAEANgAAAGoAAgAFAAAALiq3AAEqAbUAAioBtQADKgG1AAQqAbUABSortQACKi21AAMqLLUABCoZBLUABbEAAAABADcAAAAqAAoAAABvAAQAagAJAGsADgBsABMAbQAYAHAAHQBxACIAcgAnAHMALQB0AAEAOAA5AAEANgAAACAAAQABAAAACCq0AAK2AAawAAAAAQA3AAAABgABAAAAdgACADoAOwABADYAAACsAAIABAAAAF0rtgAHtgAITSwSCbYACpoAHiwSC7YACpoAFSwSDLYACpoADCwSDbYACpkABQOsLBIOtgAPmQAFBKwrtgAQTi22ABGZABctA7YAErgAE5oADC0SFLYAFZkABQOsA6wAAAACADcAAAAmAAkAAAB6AAgAewAsAHwALgB9ADcAfgA5AH8APgCAAFkAgQBbAIIAPAAAABEABfwALAcAPQEK/AAfBwA9AQABAD4APwABADYAAAHMAAMACgAAAMMqtAACKrQABAO9ABa2ABdMuwAYWbcAGU0sK7YAGlcstgAbmgBoLLYAHE4twAAdwAAdOgQZBDoFGQW+NgYDNgcVBxUGogAXGQUVBzI6CCwZCLYAGleEBwGn/+inAC06BCottwAfmQAjLSq0AAW4ACA6BRkFxgAUsgAhGQW2ACK4ACMZBbYAJFen/5cqtAADtgAlpwAxTCu2ACfGAAgrtgAnTLgAKCu4ACm2ACRXKrQAA7YAJacADzoJKrQAA7YAJRkJv7EABQAqAFoAXQAeAAAAigCUACYAAACKALYAAACUAKwAtgAAALYAuAC2AAAAAgA3AAAAbgAbAAAAhwAQAIgAGACJAB4AigAlAIsAKgCNADMAjgBNAI8AVACOAFoAmgBdAJIAXwCTAGcAlABxAJUAdgCWAH4AlwCHAJsAigCjAJEApACUAJ0AlQCeAJwAnwChAKAArACjALMApAC2AKMAwgClADwAAABbAAr9AB4HAEAHAEH/ACAACAcAQgcAQAcAQQcAQAcAHQcAHQEBAAD/ABoABAcAQgcAQAcAQQcAQAAAQgcAQ/oAKfkAAkkHAET8AAwHAET/ABQAAQcAQgABBwBECwACAEUAAAACAEYAeAAAAAoAAQAqAGgAdwAJ</byteCode>
+                </class>
+                <class>
+                    <name>EMSJavainvoke</name>
+                    <byteCode>yv66vgAAADMC5gkA9QFhCgD1AWIJAPUBYwkA9QFkCgFlAWYHAWcKAAYBaAcBaQoACAFqCgA/AWsKAAgBbAgBbQoAPwFuCgAIAW8KAAYBbwoABgFwBwFxCgARAXIJAXMBdAoAEQF1CgARAXYKAXcBeAkA9QF5BwF6CgAYAWgJAPUBewoAIAF8CwF9AX4LAX0BfwsBgAGBCwGAAYIHAYMHAYQJACABhQkAIAGGCQAgAYcKACEBiAsBfQGJCwF9AYoKAFUBiwoAUgGMCgA2AY0KADYBjggBjwoASQGQCAGRCgBJAZIIAZMHAZQLAX0BlQoAMQGWCQD1AZcKAPUBmAcBmQcBmgoANwGbCwGcAZ0IAZ4KAZ8BoAoBoQGiCQGjAaQKADEBpQcBpgcBpwoAQAFoCAGoCgBAAakKAEABqgoAQAFwCgEHAYkKAQcBlQoBBwGrBwGsCQD1Aa0KAQcBcAkA9QGuCgEHAa8KACEBsAcBsQoAPwGyCAGzBwG0CgBSAbUKADYBtgcBtwoANgG4CAG5CgBSAboIAbsKAEkBvAoAVQG9CgBSAb4KAb8BtgoBvwHACgBSAcEKAFIBwgoASQHDCgBJAcQKAEkBxQoBxgHHCgD1AcgKAPUByQoAUgGOBwHKCgBoAWgIAcsKAEkBzAgBzQoAaAHOCAHPCgBJAdAIAdEKAEkBvQgB0ggB0wgB1AkBdwHVCAHWCAHXCAHYCgHZAdoKAGgB2wsB3AF/BwHeCwB8AeAIAeEIAeIKAEkB4wgB5AgB5QgB5ggB5wgB6AgB6QgB6ggB6wgB7AgB7QgB7ggB7wgB8AoASQHxCgBJAfIJAXcB8wgB9AgB9QgB9gsAfAH3CAH4CgBAAdAKAEAB+QgB+ggB+woAQAH8CAH9BwH+CAH/CAIACAIBCAICCAIDCAIECAIFCAIGCAIHCAIICAIJCAIKCAILCAIMCAINCAIOCAIPCAIQCAIRCAISCAITCAIUCAIVCAIWCAIXCAIYCAIZCAIaCgD1AhsHAhwIAh0IAh4IAh8IAiAIAiEIAiIIAiMIAiQIAiUIAiYIAicIAigIAikHAioIAisIAiwIAi0IAi4HAi8IAjAIAjEIAjIIAjMIAjQIAjUHAjYIAjcIAjgIAjkIAjoIAjsIAjwIAj0HAj4IAj8IAkAIAkEIAkIIAkMIAkQIAkUIAkYIAkcIAkgIAkkIAkoKAb8CSwgCTAgCTQgCTggCTwoATwFrCgGhAlAKAaECUQgCUggCUwoA9QJUCQD1AlUHAlYKAPUBaAoA9QJXCQD1AlgJAPUCWQkA9QJaCgBVAWgIAlsKAEkCXAgCXQgCXggCXwgCYAgCYQoASQJiCAJjCgD1AmQKAPUCZQcCZgoBBwFoBwJnAQAIRW1zU3RhdHMBAAxJbm5lckNsYXNzZXMBABFFbXNTdGF0c0V4dHJhY3RvcgEAFkNvbm5lY3Rpb25QYXJhbXNIb2xkZXIBAANub3cBAAFKAQACZXMBACZMamF2YS91dGlsL2NvbmN1cnJlbnQvRXhlY3V0b3JTZXJ2aWNlOwEABnJlc3VsdAEALExqYXZhL3V0aWwvY29uY3VycmVudC9Db25jdXJyZW50TGlua2VkUXVldWU7AQAJU2lnbmF0dXJlAQBATGphdmEvdXRpbC9jb25jdXJyZW50L0NvbmN1cnJlbnRMaW5rZWRRdWV1ZTxMamF2YS9sYW5nL1N0cmluZzs+OwEABmVycm9ycwEACElOU1RBTkNFAQAXTEVNU0phdmEvRU1TSmF2YWludm9rZTsBAA90aHJlYWRQb29sQ291bnQBAAFJAQARY29ubmVjdGlvblN0cmluZ3MBABJMamF2YS9sYW5nL1N0cmluZzsBAARsYXN0AQAEcGF0aAEAB2NvbnRlbnQBAAtjb250ZW50VHlwZQEADWVycm9yTWVzc2FnZXMBABJnZXRFeGVjdXRvclNlcnZpY2UBACkoSSlMamF2YS91dGlsL2NvbmN1cnJlbnQvRXhlY3V0b3JTZXJ2aWNlOwEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBAA1TdGFja01hcFRhYmxlAQARZXhjZXB0aW9uVG9TdHJpbmcBACkoTGphdmEvbGFuZy9UaHJvd2FibGU7KUxqYXZhL2xhbmcvU3RyaW5nOwEAC3JvdW5kRG91YmxlAQAFKERJKUQBAA1pbnZva2VTZXJ2aWNlAQADKClWBwJWBwJoBwJpBwJqBwGUBwGZBwGmBwGnBwGEBwGxAQAQZ2V0RmllbGRCeU1ldGhvZAEAOChMamF2YS9sYW5nL1N0cmluZztMamF2YS9sYW5nL09iamVjdDspTGphdmEvbGFuZy9TdHJpbmc7BwJrBwGsBwG3AQAIZ2V0RmllbGQHAbQBAApnZXRNZXRyaWNzAQBeKExqYXZhL2xhbmcvT2JqZWN0O0xqYXZhL2xhbmcvU3RyaW5nO1tMamF2YS9sYW5nL1N0cmluZztbTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nOwcBygcB3gEAC3ByZXBhcmVEYXRhAQA4KExqYXZhL2xhbmcvT2JqZWN0O0xqYXZhL2xhbmcvU3RyaW5nOylMamF2YS9sYW5nL1N0cmluZzsBABJjb25maWd1cmVQYXJhbWV0ZXIBABUoTGphdmEvbGFuZy9TdHJpbmc7KVYHAmwHAm0BAAljb25maWd1cmUBABkoKUxFTVNKYXZhL0VNU0phdmFpbnZva2U7BwJrAQALZ2V0SW5zdGFuY2UBAAdnZXRsYXN0AQAUKClMamF2YS9sYW5nL1N0cmluZzsBAAdzZXRsYXN0AQAHZ2V0cGF0aAEAB3NldHBhdGgBAApnZXRjb250ZW50AQAKc2V0Y29udGVudAEADmdldGNvbnRlbnRUeXBlAQAOc2V0Y29udGVudFR5cGUBABBnZXRlcnJvck1lc3NhZ2VzAQAQc2V0ZXJyb3JNZXNzYWdlcwEABjxpbml0PgEABmludm9rZQEACkV4Y2VwdGlvbnMBAAphY2Nlc3MkMDAwAQAuKClMamF2YS91dGlsL2NvbmN1cnJlbnQvQ29uY3VycmVudExpbmtlZFF1ZXVlOwEACmFjY2VzcyQxMDABAAphY2Nlc3MkMjAwAQAIPGNsaW5pdD4BAApTb3VyY2VGaWxlAQASRU1TSmF2YWludm9rZS5qYXZhDAEWARMMAScBKAwBEgETDAEQAREHAm4MAm8BIwEAFGphdmEvaW8vU3RyaW5nV3JpdGVyDAFXASwBABNqYXZhL2lvL1ByaW50V3JpdGVyDAFXAnAMAnEBTQwCcgJzAQAEIC0+IAwCdAJ1DAJ2ASwMAncBTQEAFGphdmEvbWF0aC9CaWdEZWNpbWFsDAFXAngHAnkMAnoCewwCfAJ9DAJ+An8HAoAMAoECggwBDgEPAQAUamF2YS91dGlsL0xpbmtlZExpc3QMARsBHAwCgwKEBwJoDAKFAoYMAocCiAcCaQwCiQKKDAKLAowBACxFTVNKYXZhL0VNU0phdmFpbnZva2UkQ29ubmVjdGlvblBhcmFtc0hvbGRlcgEAImNvbS90aWJjby90aWJqbXMvYWRtaW4vVGliam1zQWRtaW4MAo0BHAwCjgEcDAKPARwMAVcCkAwCkQKSDAGPApMMApQClQwClgKXDAKYApkMApoBTQEAA2dldAwCmwKcAQALZ2V0SkFDSUluZm8MAp0CnAEAEGdldENvbmZpZ3VyYXRpb24BACNqYXZhL3V0aWwvY29uY3VycmVudC9Db3VudERvd25MYXRjaAwB6wKeDAFXAp8MARkBGgwBIgEjAQAYamF2YS9sYW5nL3JlZmxlY3QvTWV0aG9kAQAnRU1TSmF2YS9FTVNKYXZhaW52b2tlJEVtc1N0YXRzRXh0cmFjdG9yDAFXAqAHAqEMAqICowEAI3RpYmNvLmNsaWVudFZhci5xdWVyeVRpbWVvdXRTZWNvbmRzBwKkDAKlAqYHAm0MAqcCqAcCqQwCqgKrDAKsAq0BABNqYXZhL2xhbmcvVGhyb3dhYmxlAQAXamF2YS9sYW5nL1N0cmluZ0J1aWxkZXIBAC5UaW1lb3V0IG1pc3NlZCB3aGlsZSB3YWl0aW5nIGZvciBhbGwgcmVzdWx0czogDAJyAq4MAnICrwwCsAKMAQAQamF2YS9sYW5nL1N0cmluZwwBHwEcDAEhARwMArEBLAwCsgEsAQATamF2YS9sYW5nL0V4Y2VwdGlvbgwCdAEsAQACaXMBAA9qYXZhL2xhbmcvQ2xhc3MMArMCtAwCtQK2AQAQamF2YS9sYW5nL09iamVjdAwBWAK3AQAADAK4ArQBAAJcLgwCuQK6DAK7ApIMATwCvAcCbAwBjwK9DAK+ArwMAr8ClQwCwALBDALCAsMMAsQCxQcCxgwCxwLIDAE8ATgMATcBOAEAEWphdmEvdXRpbC9IYXNoTWFwAQAETmFtZQwCyQLKAQAEJFRNUAwCywLMAQAEbm9kZQwCzQKeAQAEdHJ1ZQEAATEBAAVmYWxzZQEAATAMAs4CzwEAGE9vb3BzLCBmaWVsZCBub3QgZm91bmQ6IAEACSwgY2xhc3M6IAEABCA9PiAHAtAMAtEBRQwC0gLTBwLUBwLVAQATamF2YS91dGlsL01hcCRFbnRyeQEABUVudHJ5DALWAowBAAdpbnN0YXQuAQADaW4uDALXAtgBAAhvdXRzdGF0LgEABG91dC4BAAhkZXRhaWxzLgEAA0VtcwEABEluZm8BAARzZW50AQAEU2VudAEABHNpemUBAARTaXplAQAFYWNrZWQBAAVBY2tlZAEAA251bQEAA051bQwCwgLZDALaAU0MAtsCzwEAD0ludmFsaWQgdG9rZW46IAEAAyB7IAEAAj0iDALcAowBAAMiLCAMAt0CnwEAAyB9IAEAASAMAnIC3gEAAQoBACFjb20vdGliY28vdGliam1zL2FkbWluL1NlcnZlckluZm8BAANVUkwBAAxEdXJhYmxlQ291bnQBABNQZW5kaW5nTWVzc2FnZUNvdW50AQASUGVuZGluZ01lc3NhZ2VTaXplAQANQ29uc3VtZXJDb3VudAEABVN0YXRlAQATT3ZlcmFsbFN5bmNQcm9ncmVzcwEABlVwVGltZQEAClF1ZXVlQ291bnQBAApUb3BpY0NvdW50AQAPQ29ubmVjdGlvbkNvdW50AQAMU2Vzc2lvbkNvdW50AQANUHJvZHVjZXJDb3VudAEAE0luYm91bmRNZXNzYWdlQ291bnQBABRPdXRib3VuZE1lc3NhZ2VDb3VudAEAEkluYm91bmRNZXNzYWdlUmF0ZQEAE091dGJvdW5kTWVzc2FnZVJhdGUBABBJbmJvdW5kQnl0ZXNSYXRlAQART3V0Ym91bmRCeXRlc1JhdGUBAAtMb2dGaWxlU2l6ZQEAClN5bmNEQlNpemUBAAtBc3luY0RCU2l6ZQEABk1zZ01lbQEADE1zZ01lbVBvb2xlZAEADERpc2tSZWFkUmF0ZQEADURpc2tXcml0ZVJhdGUBABZEaXNrUmVhZE9wZXJhdGlvbnNSYXRlAQAXRGlza1dyaXRlT3BlcmF0aW9uc1JhdGUMAT4BPwEAIGNvbS90aWJjby90aWJqbXMvYWRtaW4vUXVldWVJbmZvAQANUmVjZWl2ZXJDb3VudAEAFURlbGl2ZXJlZE1lc3NhZ2VDb3VudAEAFUluVHJhbnNpdE1lc3NhZ2VDb3VudAEAHVBlbmRpbmdQZXJzaXN0ZW50TWVzc2FnZUNvdW50AQAcUGVuZGluZ1BlcnNpc3RlbnRNZXNzYWdlU2l6ZQEAD2luc3RhdC5CeXRlUmF0ZQEAEmluc3RhdC5NZXNzYWdlUmF0ZQEAEWluc3RhdC5Ub3RhbEJ5dGVzAQAUaW5zdGF0LlRvdGFsTWVzc2FnZXMBABBvdXRzdGF0LkJ5dGVSYXRlAQATb3V0c3RhdC5NZXNzYWdlUmF0ZQEAEm91dHN0YXQuVG90YWxCeXRlcwEAFW91dHN0YXQuVG90YWxNZXNzYWdlcwEAIGNvbS90aWJjby90aWJqbXMvYWRtaW4vVG9waWNJbmZvAQARU3Vic2NyaXB0aW9uQ291bnQBABhEdXJhYmxlU3Vic2NyaXB0aW9uQ291bnQBAA9TdWJzY3JpYmVyQ291bnQBABJBY3RpdmVEdXJhYmxlQ291bnQBACVjb20vdGliY28vdGliam1zL2FkbWluL0Nvbm5lY3Rpb25JbmZvAQACSUQBAAdBZGRyZXNzAQAQVW5jb21taXR0ZWRDb3VudAEAD1VuY29tbWl0dGVkU2l6ZQEACVN0YXJ0VGltZQEAB1N0YXJ0ZWQBACNjb20vdGliY28vdGliam1zL2FkbWluL1Byb2R1Y2VySW5mbwEACFVzZXJuYW1lAQAPRGVzdGluYXRpb25OYW1lAQANc3RhdC5CeXRlUmF0ZQEAEHN0YXQuTWVzc2FnZVJhdGUBAA9zdGF0LlRvdGFsQnl0ZXMBABJzdGF0LlRvdGFsTWVzc2FnZXMBAApDcmVhdGVUaW1lAQAjY29tL3RpYmNvL3RpYmptcy9hZG1pbi9Db25zdW1lckluZm8BAA5kZXRhaWxzLnByZWRsdgEAD2RldGFpbHMuc2VudG51bQEAEGRldGFpbHMuc2VudHNpemUBABBkZXRhaWxzLmxhc3RzZW50AQARZGV0YWlscy5sYXN0YWNrZWQBABFkZXRhaWxzLnRvdGFsc2VudAEAEmRldGFpbHMudG90YWxhY2tlZAEACUNvbm5lY3RlZAEAAVsBAAJdIAEAEHRpYmNvLmNsaWVudFZhci4BAAZTdHJpbmcMAt8C4AEABlVzaW5nIAEAAjogAQAcSW52YWxpZCBwYXJhbWV0ZXIgdmFsdWUgZm9yIAEADDsgZXhjZXB0aW9uPQwC4QLiDALjAp4BACFjb25uZWN0aW9uU3RyaW5ncyB0aHJlYWRQb29sQ291bnQBAAJcIAwBRAFFDAEXARgBABVFTVNKYXZhL0VNU0phdmFpbnZva2UMAUgBSQwBHQEcDAEeARwMASABHAEAFWFkbWluPUBsb2NhbGhvc3Q6NzIyMgwC5AFNAQABLwEADC9mYXZpY29uLmljbwEAGHRleHQvaHRtbDsgY2hhcnNldD1VVEYtOAEAZjxodG1sPjxib2R5PjxoMz5UaGlzIGlzIFRpYmNvRU1TRXhwb3J0ZXIgZXhwb3NpbmcgPGEgaHJlZj0nL21ldHJpY3M/bGFzdD10cnVlJz5tZXRyaWNzPC9hPjwvaDM+PC9ib2R5PgEAGXRleHQvcGxhaW47IHZlcnNpb249MC4wLjQMAuUCnAEAA3llcwwBSwFJDAErASwBACpqYXZhL3V0aWwvY29uY3VycmVudC9Db25jdXJyZW50TGlua2VkUXVldWUBAB5FTVNKYXZhL0VNU0phdmFpbnZva2UkRW1zU3RhdHMBAA5qYXZhL3V0aWwvTGlzdAEAEmphdmEvdXRpbC9JdGVyYXRvcgEAG1tMamF2YS9sYW5nL3JlZmxlY3QvTWV0aG9kOwEAE1tMamF2YS9sYW5nL1N0cmluZzsBABdqYXZhL2xhbmcvcmVmbGVjdC9GaWVsZAEAEWphdmEvbGFuZy9JbnRlZ2VyAQAeamF2YS91dGlsL2NvbmN1cnJlbnQvRXhlY3V0b3JzAQASbmV3Rml4ZWRUaHJlYWRQb29sAQATKExqYXZhL2lvL1dyaXRlcjspVgEACmdldE1lc3NhZ2UBAAZhcHBlbmQBAC8oTGphdmEvbGFuZy9DaGFyU2VxdWVuY2U7KUxqYXZhL2lvL1ByaW50V3JpdGVyOwEAD3ByaW50U3RhY2tUcmFjZQEAGChMamF2YS9pby9QcmludFdyaXRlcjspVgEABWZsdXNoAQAIdG9TdHJpbmcBAAQoRClWAQAWamF2YS9tYXRoL1JvdW5kaW5nTW9kZQEAB0hBTEZfVVABABhMamF2YS9tYXRoL1JvdW5kaW5nTW9kZTsBAAhzZXRTY2FsZQEAMShJTGphdmEvbWF0aC9Sb3VuZGluZ01vZGU7KUxqYXZhL21hdGgvQmlnRGVjaW1hbDsBAAtkb3VibGVWYWx1ZQEAAygpRAEAEGphdmEvbGFuZy9TeXN0ZW0BABFjdXJyZW50VGltZU1pbGxpcwEAAygpSgEACmZyb21TdHJpbmcBACQoTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL3V0aWwvTGlzdDsBAAZhZGRBbGwBABkoTGphdmEvdXRpbC9Db2xsZWN0aW9uOylaAQAIaXRlcmF0b3IBABYoKUxqYXZhL3V0aWwvSXRlcmF0b3I7AQAHaGFzTmV4dAEAAygpWgEABG5leHQBABQoKUxqYXZhL2xhbmcvT2JqZWN0OwEAA3VybAEABHVzZXIBAARwYXNzAQA5KExqYXZhL2xhbmcvU3RyaW5nO0xqYXZhL2xhbmcvU3RyaW5nO0xqYXZhL2xhbmcvU3RyaW5nOylWAQADYWRkAQAVKExqYXZhL2xhbmcvT2JqZWN0OylaAQAVKEkpTGphdmEvbGFuZy9PYmplY3Q7AQAIZ2V0Q2xhc3MBABMoKUxqYXZhL2xhbmcvQ2xhc3M7AQASZ2V0RGVjbGFyZWRNZXRob2RzAQAdKClbTGphdmEvbGFuZy9yZWZsZWN0L01ldGhvZDsBABFnZXRQYXJhbWV0ZXJUeXBlcwEAFCgpW0xqYXZhL2xhbmcvQ2xhc3M7AQAHZ2V0TmFtZQEACnN0YXJ0c1dpdGgBABUoTGphdmEvbGFuZy9TdHJpbmc7KVoBAAhlbmRzV2l0aAEAAygpSQEABChJKVYBAHgoTGphdmEvbGFuZy9yZWZsZWN0L01ldGhvZDtMY29tL3RpYmNvL3RpYmptcy9hZG1pbi9UaWJqbXNBZG1pbjtMamF2YS91dGlsL2NvbmN1cnJlbnQvQ291bnREb3duTGF0Y2g7TGphdmEvbGFuZy9TdHJpbmc7KVYBACRqYXZhL3V0aWwvY29uY3VycmVudC9FeGVjdXRvclNlcnZpY2UBAAdleGVjdXRlAQAXKExqYXZhL2xhbmcvUnVubmFibGU7KVYBACRjb20vdGliY28vcGUvcGx1Z2luL1BsdWdpblByb3BlcnRpZXMBAAtnZXRQcm9wZXJ0eQEAJihMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9TdHJpbmc7AQAIcGFyc2VJbnQBABUoTGphdmEvbGFuZy9TdHJpbmc7KUkBAB1qYXZhL3V0aWwvY29uY3VycmVudC9UaW1lVW5pdAEAB1NFQ09ORFMBAB9MamF2YS91dGlsL2NvbmN1cnJlbnQvVGltZVVuaXQ7AQAFYXdhaXQBACMoSkxqYXZhL3V0aWwvY29uY3VycmVudC9UaW1lVW5pdDspWgEALShMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9TdHJpbmdCdWlsZGVyOwEALShMamF2YS9sYW5nL09iamVjdDspTGphdmEvbGFuZy9TdHJpbmdCdWlsZGVyOwEABnJlbW92ZQEABWNsZWFyAQAFY2xvc2UBABFnZXREZWNsYXJlZE1ldGhvZAEAQChMamF2YS9sYW5nL1N0cmluZztbTGphdmEvbGFuZy9DbGFzczspTGphdmEvbGFuZy9yZWZsZWN0L01ldGhvZDsBAA1zZXRBY2Nlc3NpYmxlAQAEKFopVgEAOShMamF2YS9sYW5nL09iamVjdDtbTGphdmEvbGFuZy9PYmplY3Q7KUxqYXZhL2xhbmcvT2JqZWN0OwEACWdldE1ldGhvZAEABXNwbGl0AQAnKExqYXZhL2xhbmcvU3RyaW5nOylbTGphdmEvbGFuZy9TdHJpbmc7AQAGZXF1YWxzAQAtKExqYXZhL2xhbmcvU3RyaW5nOylMamF2YS9sYW5nL3JlZmxlY3QvRmllbGQ7AQAmKExqYXZhL2xhbmcvT2JqZWN0OylMamF2YS9sYW5nL09iamVjdDsBABBnZXREZWNsYXJlZEZpZWxkAQANZ2V0U3VwZXJjbGFzcwEAB2luZGV4T2YBAAQoSSlJAQAJc3Vic3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAGY2hhckF0AQAEKEkpQwEAE2phdmEvbGFuZy9DaGFyYWN0ZXIBAAtpc0xvd2VyQ2FzZQEABChDKVoBAAhjb250YWlucwEAGyhMamF2YS9sYW5nL0NoYXJTZXF1ZW5jZTspWgEAA3B1dAEAOChMamF2YS9sYW5nL09iamVjdDtMamF2YS9sYW5nL09iamVjdDspTGphdmEvbGFuZy9PYmplY3Q7AQAGbGVuZ3RoAQADZXJyAQAVTGphdmEvaW8vUHJpbnRTdHJlYW07AQATamF2YS9pby9QcmludFN0cmVhbQEAB3ByaW50bG4BAAhlbnRyeVNldAEAESgpTGphdmEvdXRpbC9TZXQ7AQANamF2YS91dGlsL1NldAEADWphdmEvdXRpbC9NYXABAAZnZXRLZXkBAAdyZXBsYWNlAQBEKExqYXZhL2xhbmcvQ2hhclNlcXVlbmNlO0xqYXZhL2xhbmcvQ2hhclNlcXVlbmNlOylMamF2YS9sYW5nL1N0cmluZzsB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</byteCode>
+                </class>
+            </byteCode>
+        </config>
+        <pd:inputBindings>
+            <javaCodeActivityInput>
+                <xsl:if test="$HTTP-Receiver/ProcessStarterOutput/parameters/last">
+                    <last>
+                        <xsl:value-of select="$HTTP-Receiver/ProcessStarterOutput/parameters/last"/>
+                    </last>
+                </xsl:if>
+                <xsl:if test="$HTTP-Receiver/ProcessStarterOutput/RequestURI">
+                    <path>
+                        <xsl:value-of select="$HTTP-Receiver/ProcessStarterOutput/RequestURI"/>
+                    </path>
+                </xsl:if>
+            </javaCodeActivityInput>
+        </pd:inputBindings>
+    </pd:activity>
+    <pd:activity name="Send HTTP Response">
+        <pd:type>com.tibco.plugin.http.HTTPResponseActivity</pd:type>
+        <pd:resourceType>httppalette.httpWebResponse</pd:resourceType>
+        <pd:x>613</pd:x>
+        <pd:y>95</pd:y>
+        <config>
+            <closeConnection>true</closeConnection>
+            <eventSource>HTTP Receiver</eventSource>
+            <flushResponse>true</flushResponse>
+            <Headers>
+                <xsd:element name="root">
+                    <xsd:complexType>
+                        <xsd:sequence>
+                            <xsd:element name="StatusLine" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Content-Type" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Set-Cookie" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Pragma" type="xsd:string" minOccurs="0"/>
+                            <xsd:element name="Location" type="xsd:string" minOccurs="0"/>
+                        </xsd:sequence>
+                    </xsd:complexType>
+                </xsd:element>
+            </Headers>
+        </config>
+        <pd:inputBindings>
+            <ResponseActivityInput>
+                <binaryContent>
+                    <xsl:value-of select="$GZIPCompress/Output/Body"/>
+                </binaryContent>
+                <Headers>
+                    <Content-Type>
+                        <xsl:value-of select="$invoke/javaCodeActivityOutput/contentType"/>
+                    </Content-Type>
+                </Headers>
+                <DynamicHeaders>
+                    <xsl:for-each select="$GZIPCompress/Output/*[position()>1]">
+                        <Header>
+                            <Name>
+                                <xsl:value-of select="local-name()"/>
+                            </Name>
+                            <Value>
+                                <xsl:value-of select="."/>
+                            </Value>
+                        </Header>
+                    </xsl:for-each>
+                </DynamicHeaders>
+            </ResponseActivityInput>
+        </pd:inputBindings>
+    </pd:activity>
+    <pd:activity name="Log Err">
+        <pd:type>com.tibco.pe.core.WriteToLogActivity</pd:type>
+        <pd:resourceType>ae.activities.log</pd:resourceType>
+        <pd:x>350</pd:x>
+        <pd:y>170</pd:y>
+        <config>
+            <role>User</role>
+        </config>
+        <pd:inputBindings>
+            <ns:ActivityInput>
+                <message>
+                    <xsl:value-of select="$invoke/javaCodeActivityOutput/errorMessages"/>
+                </message>
+                <msgCode>
+                    <xsl:value-of select="'EMS_METRICS_ERROR'"/>
+                </msgCode>
+            </ns:ActivityInput>
+        </pd:inputBindings>
+    </pd:activity>
+    <pd:activity name="GZIPCompress">
+        <pd:type>com.tibco.pe.core.CallProcessActivity</pd:type>
+        <pd:resourceType>ae.process.subprocess</pd:resourceType>
+        <pd:x>458</pd:x>
+        <pd:y>93</pd:y>
+        <config>
+            <processName>/GZIPCompress.process</processName>
+        </config>
+        <pd:inputBindings>
+            <Input>
+                <Text>
+                    <xsl:value-of select="$invoke/javaCodeActivityOutput/content"/>
+                </Text>
+            </Input>
+        </pd:inputBindings>
+    </pd:activity>
+    <pd:transition>
+        <pd:from>HTTP Receiver</pd:from>
+        <pd:to>invoke</pd:to>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>always</pd:conditionType>
+    </pd:transition>
+    <pd:transition>
+        <pd:from>invoke</pd:from>
+        <pd:to>GZIPCompress</pd:to>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>otherwise</pd:conditionType>
+    </pd:transition>
+    <pd:transition>
+        <pd:from>Send HTTP Response</pd:from>
+        <pd:to>End</pd:to>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>always</pd:conditionType>
+    </pd:transition>
+    <pd:transition>
+        <pd:from>invoke</pd:from>
+        <pd:to>Log Err</pd:to>
+        <pd:xpathDescription>err</pd:xpathDescription>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>xpath</pd:conditionType>
+        <pd:xpath>string-length($invoke/javaCodeActivityOutput/errorMessages)&gt;2</pd:xpath>
+    </pd:transition>
+    <pd:transition>
+        <pd:from>Log Err</pd:from>
+        <pd:to>GZIPCompress</pd:to>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>always</pd:conditionType>
+    </pd:transition>
+    <pd:transition>
+        <pd:from>GZIPCompress</pd:from>
+        <pd:to>Send HTTP Response</pd:to>
+        <pd:lineType>Default</pd:lineType>
+        <pd:lineColor>-16777216</pd:lineColor>
+        <pd:conditionType>always</pd:conditionType>
+    </pd:transition>
+</pd:ProcessDefinition>
