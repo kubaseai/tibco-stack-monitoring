@@ -353,7 +353,7 @@ public class BWJavainvoke{
 		 * so we need to do some filtering to pass only important data
 		 */
 		private boolean isRelevant(BWJavainvoke config) {
-			if (runningTime!=null)
+			if (runningTime!=null && runningTime > 0)
 				return true;
 			if (Long.valueOf(0).equals(lastElapsedTime))
 				return false;
