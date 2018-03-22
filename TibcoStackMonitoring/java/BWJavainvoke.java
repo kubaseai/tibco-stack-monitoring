@@ -355,7 +355,7 @@ public class BWJavainvoke{
 		private boolean isRelevant(BWJavainvoke config) {
 			if (runningTime!=null && runningTime > 0)
 				return true;
-			if (Long.valueOf(0).equals(lastElapsedTime))
+			if (lastElapsedTime==null || Long.valueOf(0).equals(lastElapsedTime))
 				return false;
 			if (completedJobs!=null)
 				return true;
