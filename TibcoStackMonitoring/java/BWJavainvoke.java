@@ -197,6 +197,7 @@ public class BWJavainvoke{
 		Long maxElapsedTime = null;
 		Long lastElapsedTime = null;
 		Long hasErrors = null;	
+		Long runningTime = null;
 		
 		private TreeMap<String, Object> getDataInMap() {
 			TreeMap<String,Object> data = new TreeMap<String,Object>();
@@ -213,6 +214,7 @@ public class BWJavainvoke{
 			data.put("maxElapsedTime", maxElapsedTime);
 			data.put("lastElapsedTime", lastElapsedTime);
 			data.put("hasErrors", hasErrors);
+			data.put("runningTime", hasErrors);
 			return data;
 		}
 		
@@ -307,7 +309,7 @@ public class BWJavainvoke{
 					Long executionCount = (Long) row.get("ExecutionCount"); 
 					Long executionTime = (Long) row.get("ExecutionTime");
 					Long elapsedTime = (Long) row.get("ElapsedTime");
-					// we cannot update avgTime stats when there are in flight activities //
+					/* we cannot update avgTime stats when there are in flight activities */
 					if (executionCount!=null && executionCount > 0 && bw.hasErrors!=null)
 						bw.avgExecutionTime = roundDouble((double)executionTime / (double)executionCount, 2);
 					if (executionCount!=null && executionCount > 0 && bw.hasErrors!=null)
@@ -318,7 +320,26 @@ public class BWJavainvoke{
 					bw.minElapsedTime = (Long) row.get("MinElapsedTime");
 					bw.maxElapsedTime = (Long) row.get("MaxElapsedTime");
 					bw.lastElapsedTime = (Long) row.get("MostRecentElapsedTime");
-					
+										
+					bw.trimNames();
+					if (bw.isRelevant(config)) {						
+						list.add(bw);
+					}
+				}
+			}
+			return list;
+		}
+		
+		public static List<BWStats> fromRunningStats(TabularDataSupport processes, BWJavainvoke config) {
+			LinkedList<BWStats> list = new LinkedList<>();
+			if (processes!=null) {
+				for (Object _row : processes.values()) {
+					CompositeData row = (CompositeData)_row;
+					BWStats bw = new BWStats();
+					bw.process = (String) row.get("StarterName") + "/" + (String) row.get("MainProcessName");
+					bw.activity = (String) row.get("CurrentActivityName");			
+					bw.runningTime = (Long) row.get("Duration");					
+										
 					bw.trimNames();
 					if (bw.isRelevant(config)) {						
 						list.add(bw);
@@ -328,10 +349,12 @@ public class BWJavainvoke{
 			return list;
 		}
 	
-		// with all activities we would end up with very huge volumes of metrics
-		// so we need to do some filtering to pass only important data
-		//
+		/* with all activities we would end up with very huge volumes of metrics
+		 * so we need to do some filtering to pass only important data
+		 */
 		private boolean isRelevant(BWJavainvoke config) {
+			if (runningTime!=null)
+				return true;
 			if (Long.valueOf(0).equals(lastElapsedTime))
 				return false;
 			if (completedJobs!=null)
@@ -344,7 +367,7 @@ public class BWJavainvoke{
 				String a = ""+activity.toLowerCase();
 				if (a.contains("error") && (a.contains("dummy") || a.contains("force") || (a.contains("get") && 
 					(a.contains("stack")) || a.contains("path") || a.contains("process"))))
-						return false; // there are some logging patterns gathering process name/path/stack via dummy error
+						return false; /* there are some logging patterns gathering process name/path/stack via dummy error */
 				return true;
 			}
 			return false;
@@ -646,7 +669,8 @@ public class BWJavainvoke{
 					}
 				}
 			}
-			String file = sysProperties.getProperty("wrapper.tra.file");
+		
+		String file = sysProperties.getProperty("wrapper.tra.file");
 	        MemoryMXBean memBean = ManagementFactory.newPlatformMXBeanProxy(conn, ManagementFactory.MEMORY_MXBEAN_NAME, MemoryMXBean.class);
 	       	RuntimeMXBean rtBean = ManagementFactory.newPlatformMXBeanProxy(conn, ManagementFactory.RUNTIME_MXBEAN_NAME, RuntimeMXBean.class);
 	       	ThreadMXBean thrBean = ManagementFactory.newPlatformMXBeanProxy(conn, ManagementFactory.THREAD_MXBEAN_NAME, ThreadMXBean.class);
@@ -694,8 +718,11 @@ public class BWJavainvoke{
 	        		if (tib!=null) {
 		        		TabularDataSupport getProcesses = (TabularDataSupport) conn.invoke(tib.getObjectName(), "GetProcessDefinitions", new Object[] {}, null);
 		        		TabularDataSupport getActivities = (TabularDataSupport) conn.invoke(tib.getObjectName(), "GetActivities", new Object[] { null }, null);
-		        		stats.bwStats.addAll(BWStats.fromProcessStats(getProcesses));    
-		        		stats.bwStats.addAll(BWStats.fromActivityStats(getActivities, config)); 
+		        		TabularDataSupport getRunning = (TabularDataSupport) conn.invoke(tib.getObjectName(), "GetProcesses", new Object[] { 0L, null, 0L, 0L, null }, null);
+		        		
+		        		stats.bwStats.addAll(BWStats.fromProcessStats(getProcesses)); 
+		        		stats.bwStats.addAll(BWStats.fromRunningStats(getRunning, config));
+		        		stats.bwStats.addAll(BWStats.fromActivityStats(getActivities, config));
 		        		conn.invoke(tib.getObjectName(), "ResetActivityStats", new Object[] { "*" }, null);
 	        		}
 	        	}
@@ -885,4 +912,3 @@ content = getInstance().content;
 errorMessages = getInstance().errorMessages;
 }
 }
-
