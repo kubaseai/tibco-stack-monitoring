@@ -214,7 +214,7 @@ public class BWJavainvoke{
 			data.put("maxElapsedTime", maxElapsedTime);
 			data.put("lastElapsedTime", lastElapsedTime);
 			data.put("hasErrors", hasErrors);
-			data.put("runningTime", hasErrors);
+			data.put("runningTime", runningTime);
 			return data;
 		}
 		
