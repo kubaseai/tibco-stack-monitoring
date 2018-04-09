@@ -284,7 +284,7 @@ public class BWJavainvoke{
 					bw.minElapsedTime = (Long) row.get("MinElapsed");
 					bw.maxElapsedTime = (Long) row.get("MaxElapsed");
 					bw.lastElapsedTime = (Long) row.get("MostRecentElapsedTime");
-					bw.hasErrors = Long.valueOf(0L).equals(bw.abortedJobs) ? 0L: 1L;
+					bw.hasErrors = Long.valueOf(0L).equals(bw.abortedJobs) ? null : bw.abortedJobs;
 					
 					bw.trimNames();
 					if (bw.isRelevant(INSTANCE))
@@ -303,8 +303,8 @@ public class BWJavainvoke{
 					String lastReturnCode = (String) row.get("LastReturnCode");
 					bw.process = (String) row.get("ProcessDefName");
 					bw.activity = (String) row.get("Name");			
-					bw.hasErrors = ("OK".equals(lastReturnCode) || "DEAD".equals(lastReturnCode)) ? 0L : 1L;
-					if ("WAITING".equals(lastReturnCode))
+					bw.hasErrors = (Long) row.get("ErrorCount");
+					if (Long.valueOf(0L).equals(bw.hasErrors))
 						bw.hasErrors = null;
 					Long executionCount = (Long) row.get("ExecutionCount"); 
 					Long executionTime = (Long) row.get("ExecutionTime");
@@ -336,14 +336,14 @@ public class BWJavainvoke{
 				for (Object _row : processes.values()) {
 					CompositeData row = (CompositeData)_row;
 					BWStats bw = new BWStats();
-					bw.process = (String) row.get("StarterName") + "/" + (String) row.get("MainProcessName");
+					bw.process = (String) row.get("StarterName") + "/" + (String) row.get("MainProcessName") + "@" + row.get("ProcessId");
 					bw.activity = (String) row.get("CurrentActivityName");			
 					bw.runningTime = (Long) row.get("Duration");					
-										
+					
 					bw.trimNames();
 					if (bw.isRelevant(config)) {						
 						list.add(bw);
-					}
+					}				
 				}
 			}
 			return list;
