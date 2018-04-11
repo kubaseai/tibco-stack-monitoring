@@ -336,8 +336,8 @@ public class BWJavainvoke{
 				for (Object _row : processes.values()) {
 					CompositeData row = (CompositeData)_row;
 					BWStats bw = new BWStats();
-					bw.process = (String) row.get("StarterName") + "/" + (String) row.get("MainProcessName") + "@" + row.get("ProcessId");
-					bw.activity = (String) row.get("CurrentActivityName");			
+					bw.process = (String) row.get("StarterName") + "/" + (String) row.get("MainProcessName");
+					bw.activity = (String) row.get("CurrentActivityName") + "@" + row.get("Id");			
 					bw.runningTime = (Long) row.get("Duration");					
 					
 					bw.trimNames();
@@ -354,7 +354,7 @@ public class BWJavainvoke{
 		 */
 		private boolean isRelevant(BWJavainvoke config) {
 			if (runningTime!=null && runningTime > 0)
-				return true;
+				return true;			
 			if (lastElapsedTime==null || Long.valueOf(0).equals(lastElapsedTime))
 				return false;
 			if (completedJobs!=null)
@@ -363,7 +363,7 @@ public class BWJavainvoke{
 				return true;
 			if (maxElapsedTime!=null && maxElapsedTime > config.maxElapsedWarnThresholdMillis)
 				return true;
-			if (Long.valueOf(1).equals(hasErrors)) {
+			if (hasErrors!=null && hasErrors > 0) {
 				String a = ""+activity.toLowerCase();
 				if (a.contains("error") && (a.contains("dummy") || a.contains("force") || (a.contains("get") && 
 					(a.contains("stack")) || a.contains("path") || a.contains("process"))))
@@ -684,17 +684,7 @@ public class BWJavainvoke{
 	        String appId = "PID|"+rtBean.getName();
 	
 	       	if (file!=null) {
-	       		appId = file.endsWith(".tra") ? "TRA|"+file.substring(file.lastIndexOf(File.separator+"")+1) : appId;
-	       		if (appId.startsWith("TRA")) {
-	       			int idx = appId.indexOf("-Process_Archive");
-	       			if (idx!=-1)
-	       				appId = "BW|"+appId.substring(4, idx);
-				else {
-					idx = appId.indexOf("-ProcessArchive");
-					if (idx!=-1)
-	       					appId = "BW|"+appId.substring(4, idx);
-				}
-	       		}       				
+	       		appId = file.endsWith(".tra") ? "TRA|"+file.substring(file.lastIndexOf(File.separator+"")+1) : appId;	       						
 	        }
 	
 	        VMStats stats = new VMStats(false);
@@ -724,7 +714,10 @@ public class BWJavainvoke{
 		        		stats.bwStats.addAll(BWStats.fromRunningStats(getRunning, config));
 		        		stats.bwStats.addAll(BWStats.fromActivityStats(getActivities, config));
 		        		conn.invoke(tib.getObjectName(), "ResetActivityStats", new Object[] { "*" }, null);
-	        		}
+					if (!stats.bwStats.isEmpty()) {
+	       					stats.nameOrDesc = appId = "BW|"+appId.substring(4);
+					}
+	       			}	        		
 	        	}
 	        }
 	        catch (Throwable exc) {
@@ -912,3 +905,4 @@ content = getInstance().content;
 errorMessages = getInstance().errorMessages;
 }
 }
+
