@@ -65,13 +65,14 @@ public class BWJavainvoke{
 	private final static ConcurrentLinkedQueue<String> errors = new ConcurrentLinkedQueue<>();
 	private final static ConcurrentHashMap<String, Method> methodCache = new ConcurrentHashMap<>();
 	private static BWJavainvoke INSTANCE = null;
-
+	
 	protected int threadPoolCount = 24;
 	protected long minElapsedWarnThresholdMillis = 30000;
 	protected long maxElapsedWarnThresholdMillis = 60000;
 	protected int samplesCount = 5;
 	protected int probingPeriodMillis = 1000;
 	protected int reconnectCount = 2;
+	protected int zeroOneSignalPeriodTimeMillis = 600000;
 
 	private static synchronized ExecutorService getExecutorService(int threadCount) {
 		if (es==null)
@@ -225,8 +226,9 @@ public class BWJavainvoke{
 	
 		public String toPrometheusString(String appName) {		
 			StringBuilder sb = new StringBuilder();
-			String object = process + "/" + activity;
-			String type = completedJobs!=null ? "process" : "activityNotice";
+			boolean isProcess = completedJobs!=null;
+			String object = process + "/" + (isProcess ? "*" : "") + activity;
+			String type = isProcess ? "process" : "activityNotice";
 			for (Map.Entry<String,Object> entry : getDataInMap().entrySet()) {
 				if (entry.getValue()!=null)
 					sb.append("Bw_"+entry.getKey()).append(" { component=\"").append(appName).append("\", object=\"").append(object)
@@ -234,6 +236,13 @@ public class BWJavainvoke{
 					.append(entry.getValue()).append(" ").append(now).append("\n");
 			}		
 			return sb.toString();
+		}
+		
+		public final static void getZeroOneSignalPrometheusString(StringBuilder sb, BWJavainvoke config) {
+			long period = config.zeroOneSignalPeriodTimeMillis;
+			int value = (System.currentTimeMillis() % period) < (period >> 1) ? 1 : 0;
+			sb.append("ZeroOneSignal { host=\"").append(VMStats.host).append("\" } ")
+				.append(value).append(" ").append(now).append("\n");
 		}
 	
 		public String toJsonString() {
@@ -764,6 +773,7 @@ public class BWJavainvoke{
 			String vmstat = result.remove();
 			sb.append(vmstat);
 		}
+		BWStats.getZeroOneSignalPrometheusString(sb, this);
 		content = sb.toString();
 		errorMessages = errors.toString();
 		errors.clear();
@@ -821,7 +831,7 @@ public class BWJavainvoke{
 			startLocalManagementAgent = VirtualMachineClass.getMethod("startLocalManagementAgent"); // Java 8+
 		}
 		catch (Throwable thr) {}
-		String options = "maxElapsedWarnThresholdMillis minElapsedWarnThresholdMillis samplesCount probingPeriodMillis reconnectCount threadPoolCount";
+		String options = "maxElapsedWarnThresholdMillis minElapsedWarnThresholdMillis samplesCount probingPeriodMillis reconnectCount threadPoolCount zeroOneSignalPeriodTimeMillis";
 		for (String s : options.split("\\ "))
 			configureParameter(s);
 		if (reconnectCount < 1)
@@ -905,4 +915,3 @@ content = getInstance().content;
 errorMessages = getInstance().errorMessages;
 }
 }
-
