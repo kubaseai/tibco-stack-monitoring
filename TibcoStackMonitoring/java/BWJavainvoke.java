@@ -72,6 +72,7 @@ public class BWJavainvoke{
 	protected int samplesCount = 5;
 	protected int probingPeriodMillis = 1000;
 	protected int reconnectCount = 2;
+	protected int queryTimeoutSeconds = 15;
 	protected int zeroOneSignalPeriodTimeMillis = 600000;
 
 	private static synchronized ExecutorService getExecutorService(int threadCount) {
@@ -240,7 +241,7 @@ public class BWJavainvoke{
 		
 		public final static void getZeroOneSignalPrometheusString(StringBuilder sb, BWJavainvoke config) {
 			long period = config.zeroOneSignalPeriodTimeMillis;
-			int value = (System.currentTimeMillis() % period) < (period >> 1) ? 1 : 0;
+			int value = (System.currentTimeMillis() % period) < (period >> 1) ? 0 : 1;
 			sb.append("ZeroOneSignal { host=\"").append(VMStats.host).append("\" } ")
 				.append(value).append(" ").append(now).append("\n");
 		}
@@ -480,6 +481,55 @@ public class BWJavainvoke{
 			return sb.toString();	
 		}
 		
+		public final static Object[] getWorkingDirSize(String line) {
+			int idx = line.indexOf("/");			
+			if (idx!=-1) {
+				String size = line.substring(0, idx).trim();
+				String app = null;
+				int y = line.lastIndexOf("/working");					
+				if (y!=-1) {
+					int x = line.indexOf("/");
+					app = line.substring(x, y);									
+				}
+				StringBuilder numSb = new StringBuilder();
+				long unit = 1;
+				for (char ch : size.toCharArray()) {
+					if (ch >= '0' && ch <= '9')
+						numSb.append(ch);
+					else if (ch=='K')
+						unit = 1024;
+					else if (ch=='M')
+						unit = 1024*1024;
+					else if (ch=='G')
+						unit = 1024*1024*1024;
+					else if (ch=='T')
+						unit = 1024*1024*1024*1024;
+					else
+						unit = -1;
+				}				
+				if (numSb.length()==0)
+					numSb.append("0");
+				return new Object[] { app, Long.parseLong(numSb.toString()) * unit };
+			}
+			return new Object[0];
+		}
+		
+		public final static void getWorkingDirSizeInPrometheusFormat(StringBuilder sb) {
+			String workDirLocation = com.tibco.pe.plugin.PluginProperties.getProperty("tibco.clientVar.workDirLocation");
+			if (workDirLocation==null  || workDirLocation.length()==0)
+				return;
+			List<String> lines = system("find "+workDirLocation+" -name working -exec du -sh {} \\;", INSTANCE.queryTimeoutSeconds*1000);
+			for (String line : lines) {
+				Object[] wd = getWorkingDirSize(line);
+				if (wd.length==2) {
+					String app = (String) wd[0];
+					Long val = (Long) wd[1];
+					sb.append("Bw_workingDirSize").append(" { component=\"").append(app).append("\", host=\"").append(host)
+					.append("\" } ").append(val).append(" ").append(now).append("\n");
+				}
+			}			
+		}
+		
 		public VMStats(boolean osStats) {
 			if (!osStats)
 				return;
@@ -506,11 +556,10 @@ public class BWJavainvoke{
 			if (!lines.isEmpty()) {
 				String cpu = lines.get(0);
 				metrics.put("CPUs", new Object[] { cpu.trim(), new Integer(lines.size()) });
-			}
+			}			
 		}		
 	}
-	
-	
+		
 	private final static String prepareJmxAddress(Object vm, String address) throws Exception {
 		if (address == null) {
 			String javaHome = ((Properties)getSystemProperties.invoke(vm)).getProperty("java.home");
@@ -774,6 +823,7 @@ public class BWJavainvoke{
 			sb.append(vmstat);
 		}
 		BWStats.getZeroOneSignalPrometheusString(sb, this);
+		VMStats.getWorkingDirSizeInPrometheusFormat(sb);
 		content = sb.toString();
 		errorMessages = errors.toString();
 		errors.clear();
@@ -831,7 +881,7 @@ public class BWJavainvoke{
 			startLocalManagementAgent = VirtualMachineClass.getMethod("startLocalManagementAgent"); // Java 8+
 		}
 		catch (Throwable thr) {}
-		String options = "maxElapsedWarnThresholdMillis minElapsedWarnThresholdMillis samplesCount probingPeriodMillis reconnectCount threadPoolCount zeroOneSignalPeriodTimeMillis";
+		String options = "maxElapsedWarnThresholdMillis minElapsedWarnThresholdMillis samplesCount probingPeriodMillis reconnectCount threadPoolCount queryTimeoutSeconds zeroOneSignalPeriodTimeMillis";
 		for (String s : options.split("\\ "))
 			configureParameter(s);
 		if (reconnectCount < 1)
